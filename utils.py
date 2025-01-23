@@ -54,12 +54,16 @@ class KeypointRenderer:
             if all(p != (0, 0) for p in (start_point, end_point)):
                 cv2.line(rendered, start_point, end_point, COLORS['white'], 2)
         
-        # 키포인트 렌더링 최적화
+        # 키포인트 렌더링 최적화 - 인덱스 1-4 (눈, 귀)는 표시하지 않음
         for idx, (x, y) in enumerate(scaled_keypoints):
             if (x, y) == (0, 0):
                 continue
                 
             actual_idx = idx + 1
+            # 눈과 귀(인덱스 1-4)는 화면에 표시하지 않음
+            if 1 <= idx <= 4:
+                continue
+                
             color = KeypointRenderer.get_point_color(idx)
             
             if selected_point == actual_idx:
@@ -79,9 +83,9 @@ class KeypointRenderer:
         """
         if index == 0:  # nose
             return COLORS['yellow']  # yellow
-        elif index in [5, 7, 9, 11]:  # 신체 우측
+        elif index in [5, 7, 9, 11, 13, 15]:  # 신체 우측
             return COLORS['red']  # red
-        elif index in [6, 8, 10, 12]:  # 신체 좌측
+        elif index in [6, 8, 10, 12, 14, 16]:  # 신체 좌측
             return COLORS['green']  # green
         else:
             return COLORS['grey']  # grey (기본값)

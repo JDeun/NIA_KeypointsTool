@@ -160,7 +160,7 @@ class KeypointLabeler(QMainWindow):
                 name_item = QTableWidgetItem(json_file.name)
                 self.file_list.setItem(row, 0, name_item)
                 
-                # 상태
+                # 상태 - edited 폴더의 파일 존재 여부 확인
                 edited_json = edited_folder / json_file.name
                 status = "수정됨" if edited_json.exists() else "수정 사항 없음"
                 status_item = QTableWidgetItem(status)
@@ -187,20 +187,17 @@ class KeypointLabeler(QMainWindow):
 
             with open(load_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                logger.info(f"JSON 데이터 구조: {json.dumps(data, indent=2)}")
 
             self.keypoints_data = {}
 
-            # segmentation 데이터 처리
+            # segmentation 데이터 처리 개선
             if 'segmentation' in data:
                 for segment in data['segmentation']:
-                    frame_num = str(segment.get('keyframes'))
-                    raw_keypoints = segment.get('keypoints', [])
-                    
-                    # 모든 keypoints를 저장 (17개 전체)
-                    # 이렇게 하면 원본 데이터 구조가 유지됨
-                    self.keypoints_data[frame_num] = raw_keypoints
-                    logger.info(f"프레임 {frame_num}의 키포인트 데이터 로드: {raw_keypoints}")
+                    frame_num = segment.get('keyframes')  # int 형태로 유지
+                    keypoints = segment.get('keypoints', [])
+                    if keypoints:  # 빈 데이터 체크
+                        self.keypoints_data[frame_num] = keypoints
+                        logger.info(f"프레임 {frame_num}의 키포인트 데이터 로드: {keypoints}")
 
             # 관련 이미지 파일 찾기
             image_folder = self.base_path / "1.추출 이미지 데이터" / json_file.parent.name
@@ -214,7 +211,7 @@ class KeypointLabeler(QMainWindow):
 
             self.current_json = json_file
             self.current_image_idx = 0
-            self.modified = False
+            self.modified = edited_json.exists()  # edited 파일 존재하면 modified True로 설정
 
             self.load_image(self.current_images[0])
             self.update_file_list()
@@ -261,8 +258,8 @@ class KeypointLabeler(QMainWindow):
                 image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                 self.image_cache.put(str(image_path), image)
 
-            # 키프레임 번호 추출
-            keyframe_num = image_path.stem.split('_')[-1]
+            # 키프레임 번호 추출 - int로 변환
+            keyframe_num = int(image_path.stem.split('_')[-1])
             logger.info(f"키프레임 번호: {keyframe_num}")
 
             # 키포인트 데이터 로드
@@ -270,7 +267,8 @@ class KeypointLabeler(QMainWindow):
                 keypoints = self.keypoints_data[keyframe_num]
                 logger.info(f"키포인트 데이터 찾음: {keypoints}")
             else:
-                keypoints = [[0,0] for _ in range(13)]  # 0~12번 키포인트
+                # 17개 포인트 초기화 (1개는 코, 4개는 눈/귀, 12개는 신체 포인트)
+                keypoints = [[0,0] for _ in range(17)]
                 logger.info("키포인트 데이터 없음, 기본값 사용")
 
             # 에디터 위젯 업데이트
@@ -285,12 +283,11 @@ class KeypointLabeler(QMainWindow):
             QMessageBox.critical(self, "오류", f"이미지 로드 실패: {str(e)}")
 
     def on_keypoint_update(self, point_id: int, coords: list):
-        """키포인트 업데이트 처리"""
         try:
             current_image = self.current_images[self.current_image_idx]
-            keyframe_num = current_image.stem.split('_')[-1]
+            keyframe_num = int(current_image.stem.split('_')[-1])
             
-            # 현재 키프레임의 키포인트 데이터 업데이트
+            # keyframe_num을 int로 유지
             if keyframe_num not in self.keypoints_data:
                 self.keypoints_data[keyframe_num] = [[0,0]] * 13
                 
@@ -317,25 +314,28 @@ class KeypointLabeler(QMainWindow):
             with open(self.current_json, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # 현재 이미지의 키포인트 업데이트
+            # 현재 이미지의 키프레임 번호 추출
             current_image = self.current_images[self.current_image_idx]
             keyframe_num = int(current_image.stem.split('_')[-1])
-            if 'keypoints' not in data:
-                data['keypoints'] = {}
-            data['keypoints'][str(keyframe_num)] = self.editor_widget.keypoints
+            
+            # segmentation 배열에서 해당 키프레임 데이터 업데이트
+            for segment in data.get('segmentation', []):
+                if segment.get('keyframes') == keyframe_num:
+                    segment['keypoints'] = self.editor_widget.keypoints
+                    break
             
             # 저장
             with open(save_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             
-            self.modified = False
-            self.update_file_list()
+            self.modified = False  # 저장 후 modified 상태를 False로 변경
+            self.update_file_list()  # 파일 목록 상태 업데이트
             
             # 저장 완료 메시지
             msg = QMessageBox(self)
             msg.setText("수정사항이 저장되었습니다.")
             msg.setWindowTitle("알림")
-            QTimer.singleShot(1000, msg.close)  # 1초 후 자동 닫힘
+            QTimer.singleShot(1000, msg.close) # 1초 후 자동 닫기
             msg.show()
             
         except Exception as e:
@@ -354,13 +354,6 @@ class KeypointLabeler(QMainWindow):
             if reply == QMessageBox.Yes:
                 self.save_current()
 
-    def on_keypoint_update(self, point_id: int, coords: list):
-        """키포인트 업데이트 처리"""
-        self.modified = True
-        # 파일 목록 상태 업데이트
-        self.update_file_list()
-
-
     def update_file_list(self):
         """파일 목록 상태 업데이트"""
         for row in range(self.file_list.rowCount()):
@@ -370,14 +363,24 @@ class KeypointLabeler(QMainWindow):
                 if self.file_list.item(row, col):
                     self.file_list.item(row, col).setBackground(QColor("white"))
             
-            # 현재 파일만 파란색으로 하이라이트
-            if item and self.current_json and item.text() == self.current_json.name:
-                for col in range(3):
-                    if self.file_list.item(row, col):
-                        self.file_list.item(row, col).setBackground(QColor("#E3F2FD"))
+            if item:
+                file_path = self.current_json.parent / item.text()
+                edited_path = file_path.parent / "edited" / item.text()
                 
-                # 상태 업데이트
-                status = "수정됨" if self.modified else "수정 사항 없음"
+                # 현재 선택된 파일 하이라이트
+                if self.current_json and item.text() == self.current_json.name:
+                    for col in range(3):
+                        if self.file_list.item(row, col):
+                            self.file_list.item(row, col).setBackground(QColor("#E3F2FD"))
+                    # 현재 선택된 파일의 상태는 수정 중/수정됨 구분
+                    if self.modified:
+                        status = "수정 중"
+                    else:
+                        status = "수정됨" if edited_path.exists() else "수정 사항 없음"
+                else:
+                    # 다른 파일들은 edited 폴더 존재 여부만 확인
+                    status = "수정됨" if edited_path.exists() else "수정 사항 없음"
+                
                 self.file_list.item(row, 1).setText(status)
 
     def closeEvent(self, event):

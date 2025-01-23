@@ -20,7 +20,6 @@ class KeypointEditorWidget(QWidget):
         self.keypoints = [[0,0] for _ in range(17)]
         self.selected_point = None
         self.dragging = False
-        # 2304->1152 (기존 하드코딩된 값을 상수로 대체)
         self.scale_factor = DEFAULT_DISPLAY_SIZE[0] / ORIGINAL_SIZE[0]
         
     def _setup_ui(self):
@@ -197,9 +196,9 @@ class KeypointDialog(QDialog):
         self.setWindowTitle('키포인트 추가')
         self.selected_point = None
 
-        # 기존 포인트 리스트 길이 보정 (최소 13개 유지)
-        if len(existing_points) < 13:
-            existing_points.extend([[0, 0]] * (13 - len(existing_points)))
+        # 기존 포인트 리스트 길이 보정 (17개 유지)
+        if len(existing_points) < 17:
+            existing_points.extend([[0, 0]] * (17 - len(existing_points)))
 
         layout = QVBoxLayout()
 
@@ -213,14 +212,17 @@ class KeypointDialog(QDialog):
             "10: 오른쪽 무릎", "11: 왼쪽 무릎",
             "12: 오른쪽 발목", "13: 왼쪽 발목"
         ]
+        
+        # 사용 가능한 인덱스 매핑
+        valid_indices = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 
         for i, name in enumerate(point_names):
             radio = QRadioButton(name)
-            self.point_group.addButton(radio, i)
+            self.point_group.addButton(radio, valid_indices[i])  # 실제 인덱스 매핑
             layout.addWidget(radio)
 
             # 이미 사용된 점은 비활성화 및 회색으로 표시
-            if existing_points[i] != [0, 0]:
+            if existing_points[valid_indices[i]] != [0, 0]:
                 radio.setEnabled(False)
                 radio.setStyleSheet("color: #808080;")  # 회색으로 표시
 

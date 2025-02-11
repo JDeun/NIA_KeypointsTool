@@ -193,7 +193,7 @@ class KeypointLabeler(QMainWindow):
             # segmentation 데이터 처리 개선
             if 'segmentation' in data:
                 for segment in data['segmentation']:
-                    frame_num = segment.get('keyframes')  # int 형태로 유지
+                    frame_num = segment.get('keyframe')  # int 형태로 유지
                     keypoints = segment.get('keypoints', [])
                     if keypoints:  # 빈 데이터 체크
                         self.keypoints_data[frame_num] = keypoints

@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,QProgressDialog,
     QPushButton, QFileDialog, QLabel, QComboBox, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox
 )
@@ -36,7 +36,7 @@ class KeypointLabeler(QMainWindow):
         self.modified = False
         self.image_cache = ImageCache()
         self.keypoints_data = {}  # 키프레임별 키포인트 데이터 저장
-        
+                
         # UI 초기화
         self.init_ui()
         self.setup_shortcuts()
@@ -149,10 +149,22 @@ class KeypointLabeler(QMainWindow):
             json_folder = self.base_path / "2.라벨링데이터" / folder_name
             edited_folder = json_folder / "edited"
             
-            self.file_list.setRowCount(0)
-            json_files = sorted(json_folder.glob("*.json"))
+            # 파일 목록 가져오기
+            json_files = sorted(list(json_folder.glob("*.json")))
             
-            for json_file in json_files:
+            # 프로그레스 다이얼로그 설정
+            progress = QProgressDialog("파일 목록 로딩 중...", None, 0, len(json_files), self)
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(0)  # 즉시 표시
+            progress.setCancelButton(None)   # 취소 버튼 제거
+            
+            # UI 업데이트 중단
+            self.file_list.setUpdatesEnabled(False)
+            self.file_list.setSortingEnabled(False)
+            self.file_list.setRowCount(0)
+            
+            # 전체 파일 로드
+            for i, json_file in enumerate(json_files):
                 row = self.file_list.rowCount()
                 self.file_list.insertRow(row)
                 
@@ -160,9 +172,8 @@ class KeypointLabeler(QMainWindow):
                 name_item = QTableWidgetItem(json_file.name)
                 self.file_list.setItem(row, 0, name_item)
                 
-                # 상태 - edited 폴더의 파일 존재 여부 확인
-                edited_json = edited_folder / json_file.name
-                status = "수정됨" if edited_json.exists() else "수정 사항 없음"
+                # 상태
+                status = "수정됨" if (edited_folder / json_file.name).exists() else "수정 사항 없음"
                 status_item = QTableWidgetItem(status)
                 self.file_list.setItem(row, 1, status_item)
                 
@@ -170,6 +181,18 @@ class KeypointLabeler(QMainWindow):
                 load_btn = QPushButton("로드")
                 load_btn.clicked.connect(lambda checked, f=json_file: self.load_json(f))
                 self.file_list.setCellWidget(row, 2, load_btn)
+                
+                # 프로그레스 업데이트
+                progress.setValue(i + 1)
+                
+                # 50개 파일마다 이벤트 처리 (UI 반응성 유지)
+                if i % 50 == 0:
+                    QApplication.processEvents()
+            
+            # UI 업데이트 재개
+            self.file_list.setUpdatesEnabled(True)
+            self.file_list.setSortingEnabled(True)
+            progress.close()
                 
         except Exception as e:
             logger.error(f"파일 목록 로드 실패: {e}")
@@ -287,10 +310,10 @@ class KeypointLabeler(QMainWindow):
             current_image = self.current_images[self.current_image_idx]
             keyframe_num = int(current_image.stem.split('_')[-1])
             
-            # keyframe_num을 int로 유지
+            # keyframe_num을 int로 유지하고 17개 포인트로 초기화
             if keyframe_num not in self.keypoints_data:
-                self.keypoints_data[keyframe_num] = [[0,0]] * 13
-                
+                self.keypoints_data[keyframe_num] = [[0,0]] * 17
+            
             self.keypoints_data[keyframe_num][point_id] = coords
             logger.info(f"키포인트 업데이트: 프레임 {keyframe_num}, 포인트 {point_id}, 좌표 {coords}")
             
@@ -301,7 +324,6 @@ class KeypointLabeler(QMainWindow):
             logger.error(f"키포인트 업데이트 실패: {str(e)}")
 
     def save_current(self):
-        """현재 작업 내용 저장"""
         try:
             if not self.current_json or not self.modified:
                 return
@@ -320,22 +342,22 @@ class KeypointLabeler(QMainWindow):
             
             # segmentation 배열에서 해당 키프레임 데이터 업데이트
             for segment in data.get('segmentation', []):
-                if segment.get('keyframes') == keyframe_num:
-                    segment['keypoints'] = self.editor_widget.keypoints
+                if segment.get('keyframe') == keyframe_num:  # 'keyframe'으로 수정
+                    segment['keypoints'] = self.keypoints_data[keyframe_num]  # editor_widget 대신 저장된 데이터 사용
                     break
             
             # 저장
             with open(save_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             
-            self.modified = False  # 저장 후 modified 상태를 False로 변경
-            self.update_file_list()  # 파일 목록 상태 업데이트
+            self.modified = False
+            self.update_file_list()
             
             # 저장 완료 메시지
             msg = QMessageBox(self)
             msg.setText("수정사항이 저장되었습니다.")
             msg.setWindowTitle("알림")
-            QTimer.singleShot(1000, msg.close) # 1초 후 자동 닫기
+            QTimer.singleShot(1000, msg.close)
             msg.show()
             
         except Exception as e:

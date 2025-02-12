@@ -203,27 +203,37 @@ class KeypointLabeler(QMainWindow):
             if self.modified:
                 self.save_check()
 
-            # edited 폴더의 파일을 우선적으로 확인
-            edited_json = json_file.parent / "edited" / json_file.name
-            load_path = edited_json if edited_json.exists() else json_file
+            # edited 폴더의 파일 경로 확인
+            edited_folder = json_file.parent / "edited"
+            edited_json = edited_folder / json_file.name
 
-            logger.info(f"JSON 파일 로드 시도: {load_path}")
+            # 파일 존재 여부 및 선택된 경로 로깅
+            logger.info(f"원본 파일 경로: {json_file}")
+            logger.info(f"수정본 파일 경로: {edited_json}")
+            logger.info(f"수정본 존재 여부: {edited_json.exists()}")
+
+            # 로드할 파일 경로 결정 (edited 파일 우선)
+            load_path = edited_json if edited_json.exists() else json_file
+            logger.info(f"최종 선택된 로드 경로: {load_path}")
 
             with open(load_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            self.keypoints_data = {}
+            # 로드된 데이터 확인 로깅
+            logger.info(f"로드된 데이터: {data}")
+
+            self.keypoints_data.clear()  # 기존 데이터 초기화
 
             # segmentation 데이터 처리
             if 'segmentation' in data:
-                for segment in data['segmentation']:
-                    frame_num = segment.get('keyframe')  # int 형태로 유지
-                    keypoints = segment.get('keypoints', [])
-                    if keypoints:  # 빈 데이터 체크
-                        # 좌표값을 정수형으로 보장
-                        processed_keypoints = [[int(x), int(y)] for x, y in keypoints]
-                        self.keypoints_data[frame_num] = processed_keypoints
-                        logger.info(f"프레임 {frame_num}의 키포인트 데이터 로드: {processed_keypoints}")
+                # 첫 번째 세그먼트만 사용
+                segment = data['segmentation'][0]  # 항상 첫 번째 세그먼트 사용
+                frame_num = segment.get('keyframe')
+                keypoints = segment.get('keypoints', [])
+                if keypoints:
+                    processed_keypoints = [[int(x), int(y)] for x, y in keypoints]
+                    self.keypoints_data[frame_num] = processed_keypoints
+                    logger.info(f"프레임 {frame_num}의 키포인트 데이터 로드됨: {processed_keypoints}")
 
             # 관련 이미지 파일 찾기
             image_folder = self.base_path / "1.추출 이미지 데이터" / json_file.parent.name
@@ -233,11 +243,9 @@ class KeypointLabeler(QMainWindow):
             if not self.current_images:
                 raise FileNotFoundError(f"이미지 파일이 없습니다: {image_folder}")
 
-            logger.info(f"이미지 파일 찾음: {len(self.current_images)}개")
-
             self.current_json = json_file
             self.current_image_idx = 0
-            self.modified = False  # edited 파일을 로드했더라도 초기에는 수정되지 않은 상태로 설정
+            self.modified = False
 
             self.load_image(self.current_images[0])
             self.update_file_list()

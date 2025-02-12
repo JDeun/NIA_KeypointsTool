@@ -60,7 +60,7 @@ pip install numpy
 {
   "segmentation": [
     {
-      "keyframes": "0",
+      "keyframe": "0",
       "keypoints": [[x1,y1], [x2,y2], ..., [x17,y17]]
     }
   ]

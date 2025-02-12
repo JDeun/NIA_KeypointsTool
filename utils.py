@@ -14,12 +14,12 @@ DEFAULT_DISPLAY_SIZE = (1152, 648)
 ORIGINAL_SIZE = (2304, 1296)
 
 COLORS = {
-    'red': (0, 0, 255),      # BGR
+    'red': (255, 0, 0),      # RGB
     'green': (0, 255, 0),
-    'blue': (255, 0, 0),
+    'blue': (0, 0, 255),
     'white': (255, 255, 255),
-    'yellow': (0, 255, 255),  # BGR
-    'grey' : (128, 128, 128)
+    'yellow': (255, 255, 0),  # RGB
+    'grey': (128, 128, 128)
 }
     
 CONNECTIONS = [
@@ -30,6 +30,9 @@ CONNECTIONS = [
     (7, 13), (13, 15), (15, 17),   # 왼쪽: 어깨 -> 골반 -> 무릎 -> 발목
     (12, 13)  # 골반 연결
 ]
+
+SELECTED_POINT = 8
+NORMAL_POINT = 7
 
 # KeypointRenderer 최적화
 class KeypointRenderer:
@@ -52,25 +55,50 @@ class KeypointRenderer:
             end_point = scaled_keypoints[end_idx-1]
             
             if all(p != (0, 0) for p in (start_point, end_point)):
-                cv2.line(rendered, start_point, end_point, COLORS['white'], 2)
+                cv2.line(rendered, start_point, end_point, COLORS['blue'], 2)
         
-        # 키포인트 렌더링 최적화 - 인덱스 1-4 (눈, 귀)는 표시하지 않음
+        # valid_indices와 화면 표시 번호 매핑 생성
+        display_mapping = {
+            0: 1,   # 코는 1번
+            5: 2,   # JSON의 5번은 화면의 2번
+            6: 3,   # JSON의 6번은 화면의 3번
+            7: 4,   # JSON의 7번은 화면의 4번
+            8: 5,   # JSON의 8번은 화면의 5번
+            9: 6,   # JSON의 9번은 화면의 6번
+            10: 7,  # JSON의 10번은 화면의 7번
+            11: 8,  # JSON의 11번은 화면의 8번
+            12: 9,  # JSON의 12번은 화면의 9번
+            13: 10, # JSON의 13번은 화면의 10번
+            14: 11, # JSON의 14번은 화면의 11번
+            15: 12, # JSON의 15번은 화면의 12번
+            16: 13  # JSON의 16번은 화면의 13번
+        }
+        
+        # 키포인트 렌더링
         for idx, (x, y) in enumerate(scaled_keypoints):
             if (x, y) == (0, 0):
                 continue
                 
             actual_idx = idx + 1
+            
             # 눈과 귀(인덱스 1-4)는 화면에 표시하지 않음
-            if 1 <= idx <= 4:
+            if 2 <= actual_idx <= 5:
                 continue
                 
             color = KeypointRenderer.get_point_color(idx)
             
+            # 선택된 키포인트를 화면에 표시
             if selected_point == actual_idx:
-                cv2.circle(rendered, (x, y), 6, COLORS['white'], -1)
-            cv2.circle(rendered, (x, y), 5, color, -1)
-            cv2.putText(rendered, str(actual_idx), (x + 5, y + 5),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS['white'], 1)
+                cv2.circle(rendered, (x, y), SELECTED_POINT, COLORS['white'], -1)
+                
+            cv2.circle(rendered, (x, y), NORMAL_POINT, color, -1)
+            
+            # display_mapping을 사용하여 화면에 표시할 번호 결정
+            if idx in display_mapping:
+                display_num = display_mapping[idx]
+                cv2.putText(rendered, str(display_num), (x + 5, y + 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, COLORS['white'], 1)
+                
         return rendered
     
     @staticmethod

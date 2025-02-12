@@ -203,6 +203,7 @@ class KeypointLabeler(QMainWindow):
             if self.modified:
                 self.save_check()
 
+            # edited 폴더의 파일을 우선적으로 확인
             edited_json = json_file.parent / "edited" / json_file.name
             load_path = edited_json if edited_json.exists() else json_file
 
@@ -213,14 +214,16 @@ class KeypointLabeler(QMainWindow):
 
             self.keypoints_data = {}
 
-            # segmentation 데이터 처리 개선
+            # segmentation 데이터 처리
             if 'segmentation' in data:
                 for segment in data['segmentation']:
                     frame_num = segment.get('keyframe')  # int 형태로 유지
                     keypoints = segment.get('keypoints', [])
                     if keypoints:  # 빈 데이터 체크
-                        self.keypoints_data[frame_num] = keypoints
-                        logger.info(f"프레임 {frame_num}의 키포인트 데이터 로드: {keypoints}")
+                        # 좌표값을 정수형으로 보장
+                        processed_keypoints = [[int(x), int(y)] for x, y in keypoints]
+                        self.keypoints_data[frame_num] = processed_keypoints
+                        logger.info(f"프레임 {frame_num}의 키포인트 데이터 로드: {processed_keypoints}")
 
             # 관련 이미지 파일 찾기
             image_folder = self.base_path / "1.추출 이미지 데이터" / json_file.parent.name
@@ -234,7 +237,7 @@ class KeypointLabeler(QMainWindow):
 
             self.current_json = json_file
             self.current_image_idx = 0
-            self.modified = edited_json.exists()  # edited 파일 존재하면 modified True로 설정
+            self.modified = False  # edited 파일을 로드했더라도 초기에는 수정되지 않은 상태로 설정
 
             self.load_image(self.current_images[0])
             self.update_file_list()
@@ -306,6 +309,13 @@ class KeypointLabeler(QMainWindow):
             QMessageBox.critical(self, "오류", f"이미지 로드 실패: {str(e)}")
 
     def on_keypoint_update(self, point_id: int, coords: list):
+        """
+        키포인트 업데이트 메서드
+        
+        Args:
+            point_id (int): 키포인트 ID
+            coords (list): [x, y] 좌표
+        """
         try:
             current_image = self.current_images[self.current_image_idx]
             keyframe_num = int(current_image.stem.split('_')[-1])
@@ -314,8 +324,10 @@ class KeypointLabeler(QMainWindow):
             if keyframe_num not in self.keypoints_data:
                 self.keypoints_data[keyframe_num] = [[0,0]] * 17
             
-            self.keypoints_data[keyframe_num][point_id] = coords
-            logger.info(f"키포인트 업데이트: 프레임 {keyframe_num}, 포인트 {point_id}, 좌표 {coords}")
+            # 좌표를 정수형으로 변환하여 저장
+            x, y = coords
+            self.keypoints_data[keyframe_num][point_id] = [int(x), int(y)]
+            logger.info(f"키포인트 업데이트: 프레임 {keyframe_num}, 포인트 {point_id}, 좌표 {[int(x), int(y)]}")
             
             self.modified = True
             self.update_file_list()

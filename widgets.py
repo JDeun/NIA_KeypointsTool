@@ -1,10 +1,16 @@
 from PyQt5.QtWidgets import (QWidget, QLabel, QVBoxLayout, QHBoxLayout, 
-    QPushButton, QDialog, QRadioButton, QButtonGroup, QMessageBox)
+   QPushButton, QDialog, QRadioButton, QButtonGroup, QMessageBox)
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
 import cv2
 import numpy as np
 from utils import KeypointRenderer, DEFAULT_DISPLAY_SIZE, ORIGINAL_SIZE
+
+import logging
+
+# 로거 설정
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 class KeypointEditorWidget(QWidget):
     keypoint_updated = pyqtSignal(int, list)  # 키포인트 ID, [x, y]
@@ -14,6 +20,10 @@ class KeypointEditorWidget(QWidget):
         self._init_variables()
         self._setup_ui()
         
+        # 키보드 포커스 설정
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocus()  # 초기 포커스 설정
+        
     def _init_variables(self):
         """상태 변수 초기화"""
         self.current_image = None
@@ -21,6 +31,10 @@ class KeypointEditorWidget(QWidget):
         self.selected_point = None
         self.dragging = False
         self.scale_factor = DEFAULT_DISPLAY_SIZE[0] / ORIGINAL_SIZE[0]
+        
+        # 다중 선택 모드 관련 변수 추가
+        self.is_multi_select = False
+        self.start_points = None
         
     def _setup_ui(self):
         """UI 컴포넌트 초기화 및 레이아웃 구성"""
@@ -52,6 +66,7 @@ class KeypointEditorWidget(QWidget):
         
         self.image_label = QLabel()
         self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setMouseTracking(True)
         image_layout.addWidget(self.image_label)
         
         # 이미지 래퍼
@@ -86,7 +101,8 @@ class KeypointEditorWidget(QWidget):
         # 단축키 설명
         shortcut_text = (
             "단축키 안내  -  ◀/▶: 이전/다음 이미지  |  "
-            "↑/↓: 이전/다음 JSON  |  S: 수동 저장"
+            "↑/↓: 이전/다음 JSON  |  S: 수동 저장  |  "
+            "Ctrl + 드래그: 전체 키포인트 이동"
         )
         shortcut_label = QLabel(shortcut_text)
         shortcut_label.setStyleSheet("background-color: white; padding: 5px;")
@@ -94,21 +110,32 @@ class KeypointEditorWidget(QWidget):
         bottom_layout.addWidget(shortcut_label)
         
         return bottom_container
-        
+
     def mousePressEvent(self, event):
         if self.current_image is None or len(self.keypoints) == 0:
             return
 
         # 마우스 좌표를 원본 이미지 좌표로 변환
-        x = event.pos().x() / self.scale_factor
-        y = event.pos().y() / self.scale_factor
+        current_x = event.pos().x() / self.scale_factor
+        current_y = event.pos().y() / self.scale_factor
 
-        # 기존 키포인트 선택 확인
+        if self.is_multi_select and event.button() == Qt.LeftButton:
+            # 모든 유효한 키포인트의 현재 위치 저장
+            self.start_points = []
+            self.initial_mouse_pos = (current_x, current_y)
+            for i, point in enumerate(self.keypoints):
+                if point[0] != 0 or point[1] != 0:  # 활성화된 점만 저장
+                    self.start_points.append((i, point[0], point[1]))
+            self.dragging = True
+            logger.info(f"다중 선택 모드 시작 - 초기 마우스 위치: {self.initial_mouse_pos}")
+            logger.info(f"저장된 시작점들: {self.start_points}")
+            return
+
+        # 단일 포인트 선택 로직
         for i, point in enumerate(self.keypoints):
             if point[0] == 0 and point[1] == 0:
                 continue
 
-            # 스케일링된 좌표로 거리 계산
             scaled_x = point[0] * self.scale_factor
             scaled_y = point[1] * self.scale_factor
             dx = scaled_x - event.pos().x()
@@ -125,17 +152,65 @@ class KeypointEditorWidget(QWidget):
         self.update_view()
 
     def mouseMoveEvent(self, event):
-        if not self.dragging or self.selected_point is None:
+        if not self.dragging:
             return
 
         # UI 좌표를 원본 이미지 좌표로 변환
-        x = event.pos().x() / self.scale_factor
-        y = event.pos().y() / self.scale_factor
+        current_x = event.pos().x() / self.scale_factor
+        current_y = event.pos().y() / self.scale_factor
 
-        # 선택된 키포인트 위치 업데이트
-        self.keypoints[self.selected_point] = [x, y]
-        self.keypoint_updated.emit(self.selected_point, [x, y])
-        self.update_view()
+        if self.is_multi_select and self.start_points:
+            # 마우스 이동 거리 계산
+            dx = current_x - self.initial_mouse_pos[0]
+            dy = current_y - self.initial_mouse_pos[1]
+            
+            logger.info(f"다중 선택 이동 중 - 현재 위치: ({current_x}, {current_y})")
+            logger.info(f"이동 거리: dx={dx}, dy={dy}")
+            
+            # 모든 저장된 점 이동
+            for idx, start_x, start_y in self.start_points:
+                new_x = int(start_x + dx)
+                new_y = int(start_y + dy)
+                self.keypoints[idx] = [new_x, new_y]
+                self.keypoint_updated.emit(idx, [new_x, new_y])
+                logger.info(f"키포인트 {idx} 이동: ({start_x}, {start_y}) -> ({new_x}, {new_y})")
+            
+            self.update_view()
+        elif self.selected_point is not None:
+            # 단일 포인트 이동
+            self.keypoints[self.selected_point] = [current_x, current_y]
+            self.keypoint_updated.emit(self.selected_point, [current_x, current_y])
+            self.update_view()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Control:
+            self.is_multi_select = True
+            self.setCursor(Qt.CrossCursor)
+            logger.info("다중 선택 모드 활성화")
+            event.accept()  # Ctrl 키는 여기서 처리
+        else:
+            # 다른 키는 부모로 전달
+            event.ignore()
+            super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key_Control:
+            self.is_multi_select = False
+            self.setCursor(Qt.ArrowCursor)
+            self.start_points = None
+            logger.info("다중 선택 모드 비활성화")
+            event.accept()  # Ctrl 키는 여기서 처리
+        else:
+            # 다른 키는 부모로 전달
+            event.ignore()
+            super().keyReleaseEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        """마우스 릴리즈 이벤트 처리"""
+        self.dragging = False
+        self.selected_point = None
+        self.start_points = None
+        self.initial_mouse_pos = None
             
     def mouseDoubleClickEvent(self, event):
         if self.current_image is None:
@@ -143,6 +218,23 @@ class KeypointEditorWidget(QWidget):
 
         x = event.pos().x() / self.scale_factor
         y = event.pos().y() / self.scale_factor
+
+        # 실제 인덱스와 표시 번호 매핑
+        display_mapping = {
+            0: 1,   # 코는 1번 유지
+            5: 2,   # JSON의 5번은 화면의 2번
+            6: 3,   # JSON의 6번은 화면의 3번
+            7: 4,
+            8: 5,
+            9: 6,
+            10: 7,
+            11: 8,
+            12: 9,
+            13: 10,
+            14: 11,
+            15: 12,
+            16: 13
+        }
 
         # 기존 키포인트 삭제 처리
         for i, point in enumerate(self.keypoints):
@@ -152,9 +244,11 @@ class KeypointEditorWidget(QWidget):
             dx = point[0] - x
             dy = point[1] - y
             if (dx * dx + dy * dy) <= 100:  # 선택 반경 내에 있는 경우
+                # 표시 번호로 변환하여 보여주기
+                display_num = display_mapping.get(i, i + 1)
                 reply = QMessageBox.question(
                     self, '키포인트 삭제',
-                    f'{i + 1}번 키포인트를 삭제하시겠습니까?',
+                    f'{display_num}번 키포인트를 삭제하시겠습니까?',
                     QMessageBox.Yes | QMessageBox.No
                 )
                 if reply == QMessageBox.Yes:
